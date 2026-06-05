@@ -1,49 +1,35 @@
-# History files
-.Rhistory
-.Rapp.history
-
-# Session Data files
+# Ignore R workspace files
 .RData
-.RDataTmp
+*.RData
+*.Rdata
+*.rda
 
-# User-specific files
-.Ruserdata
+# Ignore specific large file names
+*.csv
+*.tif
 
-# Example code in package build process
-*-Ex.R
+# Ignore entire folders containing large data files
+2025 works/
+2026_NEE_R2/
+Data/
+frag_2026_exct_median/
+maksed_gfw_72countires/
 
-# Output files from R CMD build
-/*.tar.gz
+# Ignore other heavy extensions (examples)
+# Ignore R workspace files
+.RData
+*.RData
+*.Rdata
+*.rda
 
-# Output files from R CMD check
-/*.Rcheck/
+# Ignore specific large file names
+my_large_dataset.csv
 
-# RStudio files
-.Rproj.user/
+# Ignore entire folders containing large data files
+data_raw/
 
-# produced vignettes
-vignettes/*.html
-vignettes/*.pdf
-
-# OAuth2 token, see https://github.com/hadley/httr/releases/tag/v0.3
-.httr-oauth
-
-# knitr and R markdown default cache directories
-*_cache/
-/cache/
-
-# Temporary files created by R markdown
-*.utf8.md
-*.knit.md
-
-# R Environment Variables
-.Renviron
-
-# pkgdown site
-docs/
-
-# translation temp files
-po/*~
-
-# RStudio Connect folder
-rsconnect/
+# Ignore other heavy extensions (examples)
+#*.zip
+#*.tar.gz
+#*.mp4
+#*.exe
