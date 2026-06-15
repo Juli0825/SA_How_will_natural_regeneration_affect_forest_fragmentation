@@ -1,36 +1,28 @@
-# Ignore R workspace files
+# =========================
+# R environment files
+# =========================
 .RData
-*.RData
-*.Rdata
+.Rhistory
+.Rproj.user/
 *.rda
 
-# Ignore specific large file names
-*.csv
-*.tif
-temp_borneo_clipped.tif
-
-# Ignore entire folders containing large data files
+# =========================
+# Data (ignore raw + large)
+# =========================
+Data/
+data_raw/
 2025 works/
 2026_NEE_R2/
-Data/
 frag_2026_exct_median/
 maksed_gfw_72countires/
 
-# Ignore other heavy extensions (examples)
-# Ignore R workspace files
-.RData
-*.RData
-*.Rdata
-*.rda
+# specific large files
+temp_borneo_clipped.tif
 
-# Ignore specific large file names
-my_large_dataset.csv
-
-# Ignore entire folders containing large data files
-data_raw/
-
-# Ignore other heavy extensions (examples)
-#*.zip
-#*.tar.gz
-#*.mp4
-#*.exe
+# =========================
+# OPTIONAL: large outputs only (safer than *.csv globally)
+# =========================
+# *.csv
+# *.tif
+# *.zip
+# *.tar.gz
