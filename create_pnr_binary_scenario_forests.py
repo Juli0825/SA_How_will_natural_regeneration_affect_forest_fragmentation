@@ -11,10 +11,20 @@ arcpy.env.overwriteOutput = True
 lookup_csv  = r"R:\Chapter_3_fragmentation\2026_NEE_R2\gfw_pnr_lookup.csv"
 gfw_folder  = r"R:\Chapter_3_fragmentation\frag_2026_exct_median\current_forest_10m"
 output_base = r"R:\Chapter_3_fragmentation\2026_NEE_R2\binary_forest_scenarios"
+temp_folder = r"R:\Chapter_3_fragmentation\2026_NEE_R2\temp_mosaic"
 log_file    = os.path.join(output_base, f"processing_log_{time.strftime('%Y%m%d_%H%M%S')}.txt")
+os.makedirs(temp_folder, exist_ok=True)
 
 # Priority order: holistic_hotspot and all_pnr first, then the rest
-scenarios = ["holistic_hotspot", "all_pnr", "high_bio", "low_cost", "high_carbon"]
+# Short suffixes match R copy script and rename script
+scenario_suffixes = {
+    "holistic_hotspot": "hh",
+    "all_pnr":          "ap",
+    "high_bio":         "hb",
+    "low_cost":         "lc",
+    "high_carbon":      "hc",
+}
+scenarios = list(scenario_suffixes.keys())
 
 # Create output subfolders
 os.makedirs(output_base, exist_ok=True)
@@ -53,7 +63,6 @@ log(f"Total GFW tiles on disk: {len(all_gfw)}")
 total_start   = time.time()
 grand_success = 0
 grand_failed  = 0
-grand_copied  = 0
 
 for scenario in scenarios:
 
@@ -64,27 +73,31 @@ for scenario in scenarios:
 
     scenario_df   = lookup_df[lookup_df["scenario"] == scenario]
     output_folder = os.path.join(output_base, scenario)
+    suffix        = scenario_suffixes[scenario]
     pnr_tiles     = set(scenario_df["gfw_name"].unique())
 
     log(f"GFW tiles with PNR overlap: {len(pnr_tiles)}")
-    log(f"GFW tiles with no PNR overlap (copy GFW direct): {len(all_gfw) - len(pnr_tiles)}")
+    log(f"GFW tiles with no PNR overlap: {len(all_gfw) - len(pnr_tiles)} (will copy GFW direct)")
 
     success = 0
     failed  = 0
-    copied  = 0
 
     for i, (gfw_name, gfw_path) in enumerate(sorted(all_gfw.items()), 1):
 
-        output_file = os.path.join(output_folder, f"{gfw_name}_binary.tif")
+        output_file = os.path.join(output_folder, f"{gfw_name}_{suffix}_b.tif")
         tile_start  = time.time()
 
-        try:
-            # ----------------------------------------------------------
-            # CASE A: No PNR overlap — future forest == current forest
-            # Copy GFW raster directly (already a true binary 0/1)
-            # ----------------------------------------------------------
-            if gfw_name not in pnr_tiles:
-                log(f"  [{i}/{len(all_gfw)}] {gfw_name}: no PNR overlap — copying GFW raster")
+        # Checkpoint — skip if output already exists
+        if os.path.exists(output_file):
+            log(f"  [{i}/{len(all_gfw)}] {gfw_name}: already exists — skipping")
+            success += 1
+            grand_success += 1
+            continue
+
+        # No PNR overlap — copy GFW raster directly (already a true binary 0/1)
+        if gfw_name not in pnr_tiles:
+            log(f"  [{i}/{len(all_gfw)}] {gfw_name}: no PNR overlap — copying GFW raster")
+            try:
                 arcpy.management.CopyRaster(
                     gfw_path,
                     output_file,
@@ -93,12 +106,27 @@ for scenario in scenarios:
                 )
                 tile_time = round((time.time() - tile_start) / 60, 2)
                 log(f"  [{i}/{len(all_gfw)}] {gfw_name}: copied in {tile_time} mins")
-                copied += 1
-                grand_copied += 1
-                continue
+                success += 1
+                grand_success += 1
+            except Exception as e:
+                log(f"  [{i}/{len(all_gfw)}] {gfw_name}: FAILED — {str(e)}")
+                failed += 1
+                grand_failed += 1
+            continue
 
+        # Checkpoint — skip if output already exists
+        # This is safe because naming is now consistent (_{suffix}_b.tif throughout)
+        # so ArcGIS can crash and restart at any point without manual intervention
+        if os.path.exists(output_file):
+            log(f"  [{i}/{len(all_gfw)}] {gfw_name}: already exists — skipping")
+            success += 1
+            grand_success += 1
+            continue
+
+        try:
             # ----------------------------------------------------------
-            # CASE B: PNR overlap — overlay GFW + PNR scenario tiles
+            # PNR overlap — overlay GFW + PNR scenario tiles
+            # (no-PNR tiles are handled separately by the R copy script)
             # ----------------------------------------------------------
             pnr_files = scenario_df[scenario_df["gfw_name"] == gfw_name]["pnr_file"].tolist()
 
@@ -126,10 +154,13 @@ for scenario in scenarios:
             # NOTE: in_memory paths must NOT have a file extension in ArcGIS Pro
             if len(valid_pnr) > 1:
                 log(f"  Mosaicking {len(valid_pnr)} PNR tiles...")
+                pnr_mosaic_path = os.path.join(temp_folder, "pnr_mosaic.tif")
+                if os.path.exists(pnr_mosaic_path):
+                    arcpy.management.Delete(pnr_mosaic_path)
                 arcpy.management.MosaicToNewRaster(
                     valid_pnr,
-                    "in_memory",
-                    "pnr_mosaic",          # no .tif extension
+                    temp_folder,
+                    "pnr_mosaic.tif",
                     arcpy.Describe(gfw_path).spatialReference,
                     "32_BIT_FLOAT",
                     None,
@@ -137,20 +168,22 @@ for scenario in scenarios:
                     "MAXIMUM",
                     "FIRST"
                 )
-                pnr_mosaic_path = "in_memory/pnr_mosaic"
             else:
                 pnr_mosaic_path = valid_pnr[0]
 
             # Resample PNR from 30m to 10m, snapped to GFW grid
             # NOTE: output also in in_memory with no extension
             log(f"  Resampling PNR 30m -> 10m (nearest neighbour)...")
+            pnr_resampled_path = os.path.join(temp_folder, "pnr_resampled.tif")
+            if os.path.exists(pnr_resampled_path):
+                arcpy.management.Delete(pnr_resampled_path)
             arcpy.management.Resample(
                 pnr_mosaic_path,
-                "in_memory/pnr_resampled",     # no .tif extension
+                pnr_resampled_path,
                 f"{gfw_rast.meanCellWidth} {gfw_rast.meanCellHeight}",
                 "NEAREST"
             )
-            pnr_10m = Raster("in_memory/pnr_resampled")
+            pnr_10m = Raster(pnr_resampled_path)
 
             # Convert NoData to 0 in both rasters
             gfw_0 = Con(IsNull(gfw_rast), 0, gfw_rast)
@@ -166,10 +199,12 @@ for scenario in scenarios:
             combined.save(output_file)
             arcpy.management.BuildPyramids(output_file)
 
-            # Clean up in_memory
+            # Clean up temp files
             try:
-                arcpy.management.Delete("in_memory/pnr_mosaic")
-                arcpy.management.Delete("in_memory/pnr_resampled")
+                if os.path.exists(os.path.join(temp_folder, "pnr_mosaic.tif")):
+                    arcpy.management.Delete(os.path.join(temp_folder, "pnr_mosaic.tif"))
+                if os.path.exists(pnr_resampled_path):
+                    arcpy.management.Delete(pnr_resampled_path)
             except Exception:
                 pass
 
@@ -183,14 +218,16 @@ for scenario in scenarios:
             failed += 1
             grand_failed += 1
             try:
-                arcpy.management.Delete("in_memory")
+                for f in ["pnr_mosaic.tif", "pnr_resampled.tif"]:
+                    fp = os.path.join(temp_folder, f)
+                    if os.path.exists(fp):
+                        arcpy.management.Delete(fp)
             except Exception:
                 pass
 
     scenario_time = round((time.time() - scenario_start) / 60, 1)
     log(f"\nScenario {scenario} complete:")
     log(f"  Overlaid (PNR + GFW): {success}")
-    log(f"  Copied (no PNR):      {copied}")
     log(f"  Failed:               {failed}")
     log(f"  Time: {scenario_time} mins")
 
@@ -200,7 +237,7 @@ log(f"\n{'=' * 60}")
 log(f"ALL SCENARIOS COMPLETE")
 log(f"Total time: {total_time} mins")
 log(f"Output folder: {output_base}")
-log(f"Grand total — overlaid: {grand_success} | copied: {grand_copied} | failed: {grand_failed}")
+log(f"Grand total — overlaid: {grand_success} | failed: {grand_failed}")
 log(f"{'=' * 60}")
 
 log("\nOutput raster counts per scenario:")
