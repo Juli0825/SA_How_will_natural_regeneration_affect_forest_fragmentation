@@ -176,3 +176,175 @@ cat("\n===== ALL DONE =====\n")
 cat("Output files:\n")
 cat("1.", scenario_ffi_path, "\n")
 cat("2.", delta_path, "\n")
+
+
+
+#########################
+#### Create rasters for FFI and individual metrics
+library(terra)
+library(dplyr)
+
+scenario_name <- "holistic_hotspot_hh_b"
+output_dir    <- "R:/Chapter_3_fragmentation/2026_NEE_R2/FFI_results"
+mollweide_crs <- "+proj=moll +lon_0=0 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs"
+cell_area_km2 <- 25
+round_digits  <- 10
+
+# Load files if not already in memory
+if (!exists("delta_ffi")) {
+  delta_ffi <- read.csv(file.path(output_dir,
+                                  "delta_FFI_holistic_hotspot_hh_b_10m.csv"))
+}
+if (!exists("scenario_ffi")) {
+  scenario_ffi <- read.csv(file.path(output_dir,
+                                     "holistic_hotspot_hh_b_FFI_10m.csv"))
+}
+if (!exists("current_ffi")) {
+  current_ffi <- read.csv(file.path(output_dir,
+                                    "current_forest_FFI_10m.csv"))
+}
+
+cat("===== Classifying delta FFI =====\n")
+
+delta_ffi <- delta_ffi %>%
+  mutate(
+    delta_class = case_when(
+      delta_FFI < -0.001 ~ -1L,
+      delta_FFI >  0.001 ~  1L,
+      TRUE               ~  0L
+    ),
+    delta_label = case_when(
+      delta_class == -1 ~ "FFI decreased",
+      delta_class ==  0 ~ "unchanged",
+      delta_class ==  1 ~ "FFI increased"
+    )
+  )
+
+cat("FFI decreased: ", format(sum(delta_ffi$delta_class == -1), big.mark = ","), "\n")
+cat("Unchanged:     ", format(sum(delta_ffi$delta_class ==  0), big.mark = ","), "\n")
+cat("FFI increased: ", format(sum(delta_ffi$delta_class ==  1), big.mark = ","), "\n")
+
+# ====================================================
+# HELPER: rasterize a column from a data frame
+# ====================================================
+
+make_raster <- function(df, field, crs = mollweide_crs, res = 5000) {
+  pts <- vect(df, geom = c("center_x", "center_y"), crs = crs)
+  tpl <- rast(ext = ext(pts), resolution = res, crs = crs)
+  rasterize(pts, tpl, field = field, fun = "mean")
+}
+
+# ====================================================
+# RASTERIZE EVERYTHING
+# ====================================================
+
+cat("\n===== Rasterizing =====\n")
+
+cat("1. Current forest FFI...\n")
+r_current_ffi <- make_raster(current_ffi, "FFI")
+
+cat("2. Holistic hotspot hh_b FFI...\n")
+r_scenario_ffi <- make_raster(scenario_ffi, "FFI")
+
+cat("3. Delta FFI continuous...\n")
+r_delta_cont <- make_raster(delta_ffi, "delta_FFI")
+
+cat("4. Delta FFI classified...\n")
+r_delta_class <- make_raster(delta_ffi, "delta_class")
+
+cat("5. Delta ED...\n")
+r_delta_ed <- make_raster(delta_ffi, "delta_ED")
+
+cat("6. Delta PD...\n")
+r_delta_pd <- make_raster(delta_ffi, "delta_PD")
+
+cat("7. Delta MPA...\n")
+r_delta_mpa <- make_raster(delta_ffi, "delta_MPA")
+
+# ====================================================
+# SAVE ALL RASTERS
+# ====================================================
+
+cat("\n===== Saving rasters =====\n")
+
+writeRaster(r_current_ffi,
+            file.path(output_dir, "current_forest_FFI_raster.tif"),
+            overwrite = TRUE)
+
+writeRaster(r_scenario_ffi,
+            file.path(output_dir, paste0(scenario_name, "_FFI_raster.tif")),
+            overwrite = TRUE)
+
+writeRaster(r_delta_cont,
+            file.path(output_dir, paste0("delta_FFI_", scenario_name, "_continuous.tif")),
+            overwrite = TRUE)
+
+writeRaster(r_delta_class,
+            file.path(output_dir, paste0("delta_FFI_", scenario_name, "_classified.tif")),
+            overwrite = TRUE)
+
+writeRaster(r_delta_ed,
+            file.path(output_dir, paste0("delta_ED_", scenario_name, ".tif")),
+            overwrite = TRUE)
+
+writeRaster(r_delta_pd,
+            file.path(output_dir, paste0("delta_PD_", scenario_name, ".tif")),
+            overwrite = TRUE)
+
+writeRaster(r_delta_mpa,
+            file.path(output_dir, paste0("delta_MPA_", scenario_name, ".tif")),
+            overwrite = TRUE)
+
+cat("All 7 rasters saved\n")
+
+# ====================================================
+# METRIC CHANGE SUMMARY
+# ====================================================
+
+cat("\n===== Metric change summary =====\n")
+
+mean_ED_current  <- mean(delta_ffi$ED_current,  na.rm = TRUE)
+mean_PD_current  <- mean(delta_ffi$PD_current,  na.rm = TRUE)
+mean_MPA_current <- mean(delta_ffi$MPA_current, na.rm = TRUE)
+mean_FFI_current <- mean(delta_ffi$FFI_current, na.rm = TRUE)
+
+mean_delta_ED    <- mean(delta_ffi$delta_ED,  na.rm = TRUE)
+mean_delta_PD    <- mean(delta_ffi$delta_PD,  na.rm = TRUE)
+mean_delta_MPA   <- mean(delta_ffi$delta_MPA, na.rm = TRUE)
+mean_delta_FFI   <- mean(delta_ffi$delta_FFI, na.rm = TRUE)
+
+cat(sprintf("\n  %-22s  current: %8.4f  delta: %+.4f  (%+.2f%%)\n",
+            "FFI",
+            mean_FFI_current, mean_delta_FFI,
+            mean_delta_FFI / mean_FFI_current * 100))
+
+cat(sprintf("  %-22s  current: %8.4f  delta: %+.4f  (%+.2f%%)\n",
+            "Edge density (ED)",
+            mean_ED_current, mean_delta_ED,
+            mean_delta_ED / mean_ED_current * 100))
+
+cat(sprintf("  %-22s  current: %8.4f  delta: %+.4f  (%+.2f%%)\n",
+            "Patch density (PD)",
+            mean_PD_current, mean_delta_PD,
+            mean_delta_PD / mean_PD_current * 100))
+
+cat(sprintf("  %-22s  current: %8.2f  delta: %+.4f  (%+.2f%%)\n",
+            "Mean patch area (MPA)",
+            mean_MPA_current, mean_delta_MPA,
+            mean_delta_MPA / mean_MPA_current * 100))
+
+cat("\n  ED:  negative delta = less edge = less fragmented\n")
+cat("  PD:  negative delta = fewer patches = less fragmented\n")
+cat("  MPA: positive delta = larger patches = less fragmented\n")
+
+cat("\n===== Rasters ready to load in ArcGIS =====\n")
+cat("1. current_forest_FFI_raster.tif\n")
+cat("2.", paste0(scenario_name, "_FFI_raster.tif"), "\n")
+cat("3.", paste0("delta_FFI_", scenario_name, "_continuous.tif"), "\n")
+cat("4.", paste0("delta_FFI_", scenario_name, "_classified.tif"), "\n")
+cat("   where:  1 = FFI decreased\n")
+cat("            0 = unchanged\n")
+cat("           +1 = FFI increased\n")
+cat("5.", paste0("delta_ED_",  scenario_name, ".tif"), "\n")
+cat("6.", paste0("delta_PD_",  scenario_name, ".tif"), "\n")
+cat("7.", paste0("delta_MPA_", scenario_name, ".tif"), "\n")
