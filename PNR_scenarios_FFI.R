@@ -130,12 +130,12 @@ delta_ffi <- current_ffi %>%
          MPA_current = MPA) %>%
   inner_join(
     scenario_ffi %>%
-      select(plot_id, tile_id,
+      select(center_x, center_y, tile_id,
              FFI_scenario = FFI,
              ED_scenario  = ED,
              PD_scenario  = PD,
              MPA_scenario = MPA),
-    by = c("plot_id", "tile_id")
+    by = c("center_x", "center_y", "tile_id")
   ) %>%
   mutate(
     delta_FFI = round(FFI_scenario - FFI_current, round_digits),
@@ -144,17 +144,8 @@ delta_ffi <- current_ffi %>%
     delta_MPA = round(MPA_scenario - MPA_current, round_digits)
   )
 
-n_exact_zero <- sum(delta_ffi$delta_FFI == 0, na.rm = TRUE)
-n_tiny       <- sum(abs(delta_ffi$delta_FFI) > 0 &
-                      abs(delta_ffi$delta_FFI) < 1e-9, na.rm = TRUE)
-
-cat(sprintf("\nFloating point check:\n"))
-cat(sprintf("  Exactly zero delta FFI:  %s cells\n",
-            format(n_exact_zero, big.mark = ",")))
-cat(sprintf("  Tiny non-zero (<1e-9):   %s cells (should be 0)\n",
-            format(n_tiny, big.mark = ",")))
-
-cat("\nPlots in current FFI:  ", format(nrow(current_ffi),  big.mark = ","), "\n")
+cat("Matched on center_x + center_y + tile_id\n")
+cat("Plots in current FFI:  ", format(nrow(current_ffi),  big.mark = ","), "\n")
 cat("Plots in scenario FFI: ", format(nrow(scenario_ffi), big.mark = ","), "\n")
 cat("Matched plots:         ", format(nrow(delta_ffi),    big.mark = ","), "\n")
 cat("Unmatched:             ",
