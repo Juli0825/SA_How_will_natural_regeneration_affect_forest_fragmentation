@@ -16,7 +16,7 @@ current_ffi_path     <- "R:/Chapter_3_fragmentation/2026_NEE_R2/FFI_results/curr
 # ====================================================
 
 boundaries_path <- "R:/Chapter_3_fragmentation/2026_NEE_R2/FFI_results/global_boundaries_10m_current_forest.csv"
-output_dir      <- "R:/Chapter_3_fragmentation/2026_NEE_R2/FFI_results/test_ap"
+output_dir      <- "R:/Chapter_3_fragmentation/2026_NEE_R2/FFI_results/ap_fix_imcomplete"
 mollweide_crs   <- "+proj=moll +lon_0=0 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs"
 round_digits    <- 10
 
@@ -25,8 +25,12 @@ dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
 #snap_5km <- function(x) round(x / 5000) * 5000 # this will cause stripes at West Africa and some other tiles
                                                 # When those residual 0 points are written to a raster that expects centres at 2500, 
                                                 # every second column falls into a gap. That is your barcode.
-snap_5km <- function(x) round(x) # this line fix the stripe problem
+#snap_5km <- function(x) round(x) # this line fix the stripe problem
+                                  # nope!hh is fine, but delta ffi ap is domed by half of plots missing
 
+#snap_5km <- function(x) floor(x / 5000) * 5000 + 2500 # misting parts, still not working
+
+snap_5km <- function(x) floor(x / 5000 + 0.5) * 5000
 # ====================================================
 # STEP 1: LOAD GLOBAL BOUNDARIES
 # ====================================================
