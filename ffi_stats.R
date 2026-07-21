@@ -1,3 +1,10 @@
+
+#### fix 20s_40e madagascar
+# it's the projected fishnet not matching the one used for current forest metrics
+######
+
+
+
 library(sf)
 library(terra)
 
@@ -164,18 +171,14 @@ cat("  xmin match:", xmin(ext(r_hh)) == xmin(ext(r_ap)), "\n")
 cat("  xmax match:", xmax(ext(r_hh)) == xmax(ext(r_ap)), "\n")
 cat("  ymin match:", ymin(ext(r_hh)) == ymin(ext(r_ap)), "\n")
 cat("  ymax match:", ymax(ext(r_hh)) == ymax(ext(r_ap)), "\n")
-
-
-
-
-
-
-
+######
 
 
 
 
 ##### stats summary
+#### But generate millions of csvs
+######
 library(dplyr)
 
 output_dir <- "R:/Chapter_3_fragmentation/2026_NEE_R2/FFI_results"
@@ -432,6 +435,7 @@ write.csv(changed_summary,
                     "summary_changed_grids_holistic_hotspot_hh_b.csv"),
           row.names = FALSE)
 cat("\nSaved: summary_changed_grids_holistic_hotspot_hh_b.csv\n")
+#########
 
 
 ####### A clean tidy up version of getting the stats
@@ -457,8 +461,8 @@ cat("\nSaved: summary_changed_grids_holistic_hotspot_hh_b.csv\n")
 library(dplyr)
 
 # ---------------- PATHS ----------------
-read_dir       <- "R:/Chapter_3_fragmentation/2026_NEE_R2/FFI_results"
-output_dir     <- file.path(read_dir, "holistic_hotspot_results")
+read_dir       <- "R:/Chapter_3_fragmentation/2026_NEE_R2/FFI_results/holistic_hotspot_results"
+output_dir     <- file.path(read_dir, "hh_stats")
 scenario_label <- "holistic_hotspot_hh_b"
 cell_area      <- 25          # 5km x 5km grid = 25 km2
 
