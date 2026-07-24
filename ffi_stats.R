@@ -173,9 +173,6 @@ cat("  ymin match:", ymin(ext(r_hh)) == ymin(ext(r_ap)), "\n")
 cat("  ymax match:", ymax(ext(r_hh)) == ymax(ext(r_ap)), "\n")
 ######
 
-
-
-
 ##### stats summary
 #### But generate millions of csvs
 ######
@@ -437,7 +434,6 @@ write.csv(changed_summary,
 cat("\nSaved: summary_changed_grids_holistic_hotspot_hh_b.csv\n")
 #########
 
-
 ####### A clean tidy up version of getting the stats
 ####### Test before commit
 # ============================================================
@@ -461,9 +457,9 @@ cat("\nSaved: summary_changed_grids_holistic_hotspot_hh_b.csv\n")
 library(dplyr)
 
 # ---------------- PATHS ----------------
-read_dir       <- "R:/Chapter_3_fragmentation/2026_NEE_R2/FFI_results/holistic_hotspot_results"
-output_dir     <- file.path(read_dir, "hh_stats")
-scenario_label <- "holistic_hotspot_hh_b"
+read_dir       <- "R:/Chapter_3_fragmentation/2026_NEE_R2/FFI_results/all_pnr_results"
+output_dir     <- file.path(read_dir, "ap_stats")
+scenario_label <- "all_pnr_ap_b"
 cell_area      <- 25          # 5km x 5km grid = 25 km2
 
 dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
@@ -471,7 +467,7 @@ dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
 # ---------------- LOAD ----------------
 cat("Loading delta FFI results...\n")
 delta_ffi <- read.csv(file.path(read_dir,
-                                "delta_FFI_holistic_hotspot_hh_b_10m.csv"))
+                                "delta_FFI_all_pnr_ap_b_10m.csv"))
 cat("Rows loaded:", format(nrow(delta_ffi), big.mark = ","), "\n\n")
 
 # ---------------- FOOTPRINT (grids the scenario changed) ----------------
@@ -599,15 +595,190 @@ cat(sprintf(
   ffi$pct_grids_improved))
 cat("------------------------------------------------------------\n")
 cat("\nSaved:", out_csv, "\n")
+######
 
 
 
+######################
+########### Stats for current forest
+##### Current forest fragmentation by biogeographic realm
+library(data.table)
+library(terra)
 
+ffi_path      <- "R:/Chapter_3_fragmentation/2026_NEE_R2/FFI_results/current_forest_FFI_10m.csv"
+output_dir    <- "R:/Chapter_3_fragmentation/2026_NEE_R2/FFI_results"
+mollweide_crs <- "+proj=moll +lon_0=0 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs"
+cell_area     <- 25
 
+# longitude cut lines between realms (oceans/deserts, so no forest falls on them)
+lon_neo_afr <- -25    # Atlantic gap, Americas | Africa
+lon_afr_ind <-  58    # Arabian Sea gap, Africa | Asia
 
+# ---------------- REUSABLE REALM ASSIGNMENT ----------------
+assign_realm <- function(dt) {
+  p  <- vect(as.data.frame(dt[, .(center_x, center_y)]),
+             geom = c("center_x", "center_y"), crs = mollweide_crs)
+  ll <- crds(project(p, "EPSG:4326"))
+  dt[, lon := ll[, 1]][, lat := ll[, 2]]
+  dt[, realm := fifelse(lon < lon_neo_afr, "Neotropic",
+                        fifelse(lon < lon_afr_ind, "Afrotropic", "Indomalayan"))]
+  dt[]
+}
 
+d <- assign_realm(fread(ffi_path))
+cat("Cells per realm:\n"); print(d[, .N, by = realm])
 
+# ---------------- VERIFICATION PLOT ----------------
+png(file.path(output_dir, "realm_assignment_check.png"), width = 1500, height = 750)
+samp <- d[sample(.N, min(.N, 50000))]
+cols <- c(Neotropic = "#1b9e77", Afrotropic = "#d95f02", Indomalayan = "#7570b3")
+plot(samp$lon, samp$lat, col = cols[samp$realm], pch = 16, cex = 0.3,
+     xlab = "Longitude", ylab = "Latitude", xlim = c(-120, 160), ylim = c(-40, 40),
+     main = "Realm assignment check: colours = assigned realm, dashed = cuts, boxes = extents")
+# boxes (rough extents) and cut lines
+rect(-118, -35, lon_neo_afr,  33, border = "#1b9e77", lwd = 2)
+rect(lon_neo_afr, -35, lon_afr_ind, 30, border = "#d95f02", lwd = 2)
+rect(lon_afr_ind, -15, 160, 33, border = "#7570b3", lwd = 2)
+abline(v = c(lon_neo_afr, lon_afr_ind), lty = 2, col = "grey30")
+try(maps::map("world", add = TRUE, col = "grey70"), silent = TRUE)  # skipped if maps not installed
+legend("bottomleft", legend = names(cols), col = cols, pch = 16, bty = "n")
+dev.off()
+cat("Saved plot: realm_assignment_check.png  (open it before trusting the numbers)\n\n")
 
+# ---------------- CURRENT FOREST STATS PER REALM ----------------
+realm_stats <- function(dt, label) {
+  dt[, .(
+    realm      = label,
+    n_units    = .N,
+    area_km2   = .N * cell_area,
+    FFI_mean   = round(mean(FFI, na.rm = TRUE), 3),
+    FFI_median = round(median(FFI, na.rm = TRUE), 3),
+    FFI_sd     = round(sd(FFI, na.rm = TRUE), 3),
+    FFI_q1     = round(quantile(FFI, .25, na.rm = TRUE), 3),
+    FFI_q3     = round(quantile(FFI, .75, na.rm = TRUE), 3),
+    ED_mean    = round(mean(ED,  na.rm = TRUE), 3),
+    PD_mean    = round(mean(PD,  na.rm = TRUE), 3),
+    MPA_mean   = round(mean(MPA, na.rm = TRUE), 3),
+    pct_low    = round(mean(FFI <  0.2, na.rm = TRUE) * 100, 1),
+    pct_medium = round(mean(FFI >= 0.2 & FFI <= 0.8, na.rm = TRUE) * 100, 1),
+    pct_high   = round(mean(FFI >  0.8, na.rm = TRUE) * 100, 1)
+  )]
+}
+
+by_realm <- rbindlist(lapply(split(d, by = "realm"),
+                             function(x) realm_stats(x, x$realm[1])))
+all_row  <- realm_stats(d, "ALL")
+tbl <- rbind(by_realm, all_row)
+setorder(tbl, realm)
+
+write.csv(tbl, file.path(output_dir, "summary_current_forest_by_realm.csv"), row.names = FALSE)
+cat("=============== CURRENT FOREST BY REALM ===============\n")
+print(tbl)
+
+cat("\nDRAFT SENTENCES:\n")
+for (r in c("Afrotropic", "Neotropic", "Indomalayan")) {
+  x <- tbl[realm == r]
+  cat(sprintf("  %s: mean FFI %.2f (median %.2f, IQR %.2f-%.2f); %.0f%% highly fragmented, %.0f%% intact. ED %.1f, PD %.1f, MPA %.1f ha.\n",
+              r, x$FFI_mean, x$FFI_median, x$FFI_q1, x$FFI_q3, x$pct_high, x$pct_low,
+              x$ED_mean, x$PD_mean, x$MPA_mean))
+}
+
+######
+# Figure 1 panel b c d e
+##### Figure: current forest FFI and components by realm
+##### FFI on the left axis, the three metrics share the right axis
+library(data.table)
+library(ggplot2)
+
+sum_path <- "R:/Chapter_3_fragmentation/2026_NEE_R2/FFI_results/summary_current_forest_by_realm.csv"
+out_png  <- "R:/Chapter_3_fragmentation/2026_NEE_R2/FFI_results/fig_realm_components.png"
+
+tbl <- fread(sum_path)[realm != "ALL"]
+
+# ----------------------------------------------------
+# UNIT CONVERSION to km based units
+# Written to NEW columns so the conversion always derives from the
+# original values. Safe to re-run any part of this script without
+# converting twice.
+#   FFI : unitless
+#   ED  : m/ha -> /10 gives km/km2   (edge length per unit area)
+#   PD  : n per 100 ha is already n per km2, no arithmetic
+#   MPA : ha -> /100 gives km2
+# ----------------------------------------------------
+tbl[, `:=`(
+  FFI_v = FFI_mean,
+  ED_v  = ED_mean / 10,
+  PD_v  = PD_mean,
+  MPA_v = MPA_mean / 100
+)]
+
+cat("Converted values (check before plotting):\n")
+print(tbl[, .(realm,
+              FFI = round(FFI_v, 3),
+              ED_km_per_km2 = round(ED_v, 2),
+              PD_n_per_km2  = round(PD_v, 2),
+              MPA_km2       = round(MPA_v, 2))])
+
+long <- melt(tbl, id.vars = "realm",
+             measure.vars = c("FFI_v", "ED_v", "PD_v", "MPA_v"),
+             variable.name = "metric", value.name = "value")
+
+long[, metric := factor(metric,
+                        levels = c("FFI_v", "ED_v", "PD_v", "MPA_v"),
+                        labels = c("FFI",
+                                   "Edge density\n(km/km²)",
+                                   "Patch density\n(n/km²)",
+                                   "Mean patch area\n(km²)"))]
+long[, realm := factor(realm, levels = c("Neotropic", "Afrotropic", "Indomalayan"))]
+
+# ----------------------------------------------------
+# TWO AXES
+# Metrics plot on their own values. FFI is multiplied by k so it
+# shares the plotting space, and the left axis divides by k to show
+# true FFI values.
+# ----------------------------------------------------
+metric_max <- 20      # covers PD max 18.67
+ffi_max    <- 0.55    # covers FFI max 0.505
+k <- metric_max / ffi_max
+
+long[, plot_val := fifelse(metric == "FFI", value * k, value)]
+
+realm_cols <- c(Neotropic   = "#B8C4B0",
+                Afrotropic  = "#E8D9B9",
+                Indomalayan = "#C2B2C2")
+
+p <- ggplot(long, aes(metric, plot_val, fill = realm)) +
+  geom_col(position = position_dodge(width = 0.8), width = 0.7,
+           colour = "grey40", linewidth = 0.25) +
+  geom_vline(xintercept = 1.5, linetype = "dashed",
+             colour = "grey65", linewidth = 0.35) +
+  scale_y_continuous(
+    name   = "FFI",
+    limits = c(0, metric_max),
+    expand = expansion(mult = c(0, 0.05)),
+    breaks = seq(0, 0.5, 0.1) * k,
+    labels = sprintf("%.1f", seq(0, 0.5, 0.1)),
+    sec.axis = sec_axis(~ ., name = "Metric value (units below each label)",
+                        breaks = seq(0, 20, 5))
+  ) +
+  scale_fill_manual(values = realm_cols, name = NULL) +
+  labs(x = NULL) +
+  theme_minimal(base_size = 12) +
+  theme(
+    legend.position    = "top",
+    legend.key.size    = unit(0.5, "cm"),
+    panel.grid         = element_blank(),
+    axis.line          = element_line(colour = "grey60", linewidth = 0.3),
+    axis.ticks         = element_line(colour = "grey60", linewidth = 0.3),
+    axis.text.x        = element_text(size = 10, lineheight = 0.95),
+    axis.title.y.left  = element_text(margin = margin(r = 8)),
+    axis.title.y.right = element_text(margin = margin(l = 8))
+  )
+
+ggsave(out_png, p, width = 8, height = 4.5, dpi = 300)
+cat("\nSaved:", out_png, "\n")
+
+print(p)
 
 
 
