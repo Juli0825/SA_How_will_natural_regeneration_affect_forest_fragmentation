@@ -683,8 +683,10 @@ for (r in c("Afrotropic", "Neotropic", "Indomalayan")) {
               x$ED_mean, x$PD_mean, x$MPA_mean))
 }
 
+
+
 ######
-# Figure 1 panel b c d e
+###### Figure 1 panel b c d e
 ##### Figure: current forest FFI and components by realm
 ##### FFI on the left axis, the three metrics share the right axis
 library(data.table)
@@ -770,7 +772,7 @@ p <- ggplot(long, aes(metric, plot_val, fill = realm)) +
     panel.grid         = element_blank(),
     axis.line          = element_line(colour = "grey60", linewidth = 0.3),
     axis.ticks         = element_line(colour = "grey60", linewidth = 0.3),
-    axis.text.x        = element_text(size = 10, lineheight = 0.95),
+    axis.text.x        = element_text(size = 10, lineheight = 0.95, colour = "black"),
     axis.title.y.left  = element_text(margin = margin(r = 8)),
     axis.title.y.right = element_text(margin = margin(l = 8))
   )
