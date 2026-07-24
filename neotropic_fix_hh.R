@@ -1,14 +1,7 @@
 ##############################################################
-# Remake ONE tile's scenario metrics using the CURRENT FOREST
+# Remake ONE tile's all_pnr metrics using the CURRENT FOREST
 # fishnet, so the scenario grid matches current forest exactly.
-# Same fix that was applied to 20S_040E (Madagascar).
-#
-# Before the long loop it:
-#   1. prints the offset between the projected and current
-#      fishnets, so you can confirm the diagnosis
-#   2. backs up the existing metrics CSV
-#   3. optionally trims the fishnet to plot_ids that exist in
-#      current forest metrics, which speeds the loop up a lot
+# Same tile and same fishnet fix as the holistic hotspot run.
 ##############################################################
 
 library(terra)
@@ -20,20 +13,12 @@ library(data.table)
 # ================= CONFIG =================
 tile_name <- "20S_050W"
 
-# --- holistic hotspot ---
-scenario_name <- "holistic_hotspot"
-suffix        <- "hh"
-raster_dir    <- "R:/Chapter_3_fragmentation/2026_NEE_R2/binary_forest_scenarios/holistic_hotspot"
-output_dir    <- "R:/Chapter_3_fragmentation/2026_NEE_R2/FutureScenario_metrics/holistic_hotspot_binary_metrics"
-
-# --- all_pnr: swap the four lines above for these ---
-# scenario_name <- "all_pnr"
-# suffix        <- "ap"
-# raster_dir    <- "R:/Chapter_3_fragmentation/2026_NEE_R2/binary_forest_scenarios/all_pnr"
-# output_dir    <- "R:/Chapter_3_fragmentation/2026_NEE_R2/FutureScenario_metrics/all_pnr_metrics"
-#
-# IMPORTANT: output_dir must be the SAME folder your FFI script reads
-# from, otherwise you will fix a copy that never gets used.
+# --- all_pnr ---
+scenario_name <- "all_pnr"
+suffix        <- "ap"
+raster_dir    <- "R:/Chapter_3_fragmentation/2026_NEE_R2/binary_forest_scenarios/all_pnr"
+output_dir    <- "R:/Chapter_3_fragmentation/2026_NEE_R2/FutureScenario_metrics/all_pnr_metrics"
+# NOTE: output_dir must be the SAME folder your FFI script reads all_pnr metrics from.
 
 current_fishnet_dir   <- "R:/Chapter_3_fragmentation/frag_2026_exct_median/fishnet_from10m"
 projected_fishnet_dir <- "R:/Chapter_3_fragmentation/2026_NEE_R2/fishnets_projected"
@@ -62,15 +47,16 @@ if (file.exists(proj_path)) {
     pf <- st_transform(pf, st_crs(cf))
   cc <- st_coordinates(st_centroid(st_geometry(cf)))
   cp <- st_coordinates(st_centroid(st_geometry(pf)))
-  dx <- min(cp[, 1]) - min(cc[, 1])
-  dy <- min(cp[, 2]) - min(cc[, 2])
-  cat(sprintf(" -> Fishnet offset (projected minus current): dx = %.1f m, dy = %.1f m\n",
+  grid <- 5000
+  wrap <- function(d) { d <- d %% grid; ifelse(d > grid / 2, d - grid, d) }
+  dx <- wrap((min(cp[, 1]) %% grid) - (min(cc[, 1]) %% grid))
+  dy <- wrap((min(cp[, 2]) %% grid) - (min(cc[, 2]) %% grid))
+  cat(sprintf(" -> Sub cell fishnet offset (projected minus current): dx = %.1f m, dy = %.1f m\n",
               dx, dy))
   if (max(abs(c(dx, dy))) > 1) {
     cat("    Offset confirmed, this rerun is the right fix.\n")
   } else {
-    cat("    NOTE: fishnets look aligned, so the problem may be something else.\n")
-    cat("    You can still rerun safely, but the cause may not be the fishnet.\n")
+    cat("    NOTE: fishnets look aligned, so the cause may be something else.\n")
   }
   rm(cf, pf, cc, cp); gc()
 } else {
@@ -94,13 +80,11 @@ fishnet_sf <- st_read(fishnet_path, quiet = TRUE)
 fishnet_sf <- st_transform(fishnet_sf, crs = crs(r))
 cat(" -> Current forest fishnet loaded:", nrow(fishnet_sf), "cells\n")
 
-# trim to scenario raster extent
 extent_poly <- st_as_sf(as.polygons(ext(r), crs = crs(r)))
 fishnet_sf  <- fishnet_sf[
   st_intersects(fishnet_sf, extent_poly, sparse = FALSE)[, 1], ]
 cat(" -> After extent filter:", nrow(fishnet_sf), "cells\n")
 
-# trim to plot_ids that exist in current forest metrics (big speedup)
 if (trim_to_current) {
   cm_files <- list.files(current_metrics_dir,
                          pattern = paste0(tile_name, ".*\\.csv$"),
@@ -202,12 +186,12 @@ if (length(cm_files) > 0) {
                                    final_metrics$metric == "ed", "plot_id"])
   cat(sprintf("\nCells with class 1 ED: current %d, new scenario %d (%.1f%%)\n",
               n_cur, n_new, 100 * n_new / n_cur))
-  cat("Close to 100% means the grids now line up.\n")
+  cat("Close to or above 100% means the grids now line up.\n")
 }
 
 cat("Tile time:",
     round(as.numeric(difftime(Sys.time(), tile_start, units = "mins")), 2), "mins\n")
-cat("\nNEXT: rerun the FFI script for this scenario so the new metrics\n")
-cat("flow through to the FFI CSV, delta CSV and rasters.\n")
+cat("\nNEXT: rerun the all_pnr FFI script so the new metrics flow through\n")
+cat("to the FFI CSV, delta CSV and rasters.\n")
 
 rm(r, fishnet_sf, fishnet_vect, metrics_list, final_metrics); gc()
