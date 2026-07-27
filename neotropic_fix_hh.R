@@ -11,7 +11,7 @@ library(dplyr)
 library(data.table)
 
 # ================= CONFIG =================
-tile_name <- "20S_050W"
+tile_name <- "20S_060W"
 
 # --- all_pnr ---
 scenario_name <- "all_pnr"
