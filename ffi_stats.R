@@ -457,7 +457,7 @@ cat("\nSaved: summary_changed_grids_holistic_hotspot_hh_b.csv\n")
 library(dplyr)
 
 # ---------------- PATHS ----------------
-read_dir       <- "R:/Chapter_3_fragmentation/2026_NEE_R2/FFI_results/all_pnr_results"
+read_dir       <- "R:/Chapter_3_fragmentation/2026_NEE_R2/FFI_results/ap_qiebai"
 output_dir     <- file.path(read_dir, "ap_stats")
 scenario_label <- "all_pnr_ap_b"
 cell_area      <- 25          # 5km x 5km grid = 25 km2
@@ -645,6 +645,13 @@ legend("bottomleft", legend = names(cols), col = cols, pch = 16, bty = "n")
 dev.off()
 cat("Saved plot: realm_assignment_check.png  (open it before trusting the numbers)\n\n")
 
+
+
+
+
+
+
+
 # ---------------- CURRENT FOREST STATS PER REALM ----------------
 realm_stats <- function(dt, label) {
   dt[, .(
@@ -782,7 +789,104 @@ cat("\nSaved:", out_png, "\n")
 
 print(p)
 
+########## Figure 1 baseline ffi in low medium high bins bar chart
+##### Baseline FFI distribution: landscape area by FFI bin
+## Mirrors the Ma et al. histogram panel:
+##   - x: FFI in ten bins of width 0.1
+##   - y: landscape area (x10^6 km2) summed per bin
+##   - dashed dividers at 0.2 and 0.8 (low / medium / high)
+##   - low/medium/high area-percentage labels above each region
+##   - bars coloured by the same green->brown ramp as the FFI map
+## -----------------------------------------------------------------------------
 
+library(data.table)
+library(ggplot2)
+
+ffi_path <- "R:/Chapter_3_fragmentation/2026_NEE_R2/FFI_results/current_forest_FFI_10m.csv"
+out_png  <- "R:/Chapter_3_fragmentation/2026_NEE_R2/FFI_results/fig_baseline_ffi_histogram.png"
+cell_km2 <- 25    # each analytical unit is 5 km x 5 km = 25 km2
+
+d <- fread(ffi_path)
+
+# --- expect a column named FFI; adjust here if yours differs ---
+stopifnot("FFI" %in% names(d))
+d <- d[!is.na(FFI)]
+
+# --- bin into 0-0.1, 0.1-0.2, ... 0.9-1.0 (ten bins) ---
+# right-closed except the first; 1.0 folded into the top bin
+brks <- seq(0, 1, by = 0.1)
+d[, bin := cut(FFI, breaks = brks, include.lowest = TRUE, right = TRUE)]
+
+# landscape area per bin, in millions of km2
+area_by_bin <- d[, .(area_Mkm2 = .N * cell_km2 / 1e6), by = bin]
+# ensure all ten bins present and ordered even if some are empty
+all_bins <- data.table(bin = factor(levels(d$bin), levels = levels(d$bin)))
+area_by_bin <- area_by_bin[all_bins, on = "bin"]
+area_by_bin[is.na(area_Mkm2), area_Mkm2 := 0]
+area_by_bin[, bin_mid := brks[-length(brks)] + 0.05]   # bar centre on 0-1 axis
+
+# --- low / medium / high area shares (cutoffs 0.2 and 0.8) ---
+tot <- sum(area_by_bin$area_Mkm2)
+pct_low  <- round(100 * sum(area_by_bin[bin_mid <  0.2, area_Mkm2]) / tot, 1)
+pct_med  <- round(100 * sum(area_by_bin[bin_mid >= 0.2 & bin_mid < 0.8, area_Mkm2]) / tot, 1)
+pct_high <- round(100 * sum(area_by_bin[bin_mid >= 0.8, area_Mkm2]) / tot, 1)
+
+# --- colour ramp matched to the FFI map (ten bins, green -> brown) ---
+# NOTE: these are approximated from the pasted legend image.
+# Replace with your exact map hex codes for a perfect match to Figure 1.
+ffi_cols <- c(
+  "#59744f",  # 0.0-0.1  dark green
+  "#749265",  # 0.1-0.2
+  "#a5c994",  # 0.2-0.3  (fix typo below if copied)
+  "#d1e4c7",  # 0.3-0.4  pale green
+  "#f6e190",  # 0.4-0.5  cream
+  "#e2ca70",  # 0.5-0.6  yellow-tan
+  "#d1ae63",  # 0.6-0.7
+  "#b98e4f",  # 0.7-0.8  tan
+  "#916751",  # 0.8-0.9  brown
+  "#64473a"   # 0.9-1.0  dark brown
+)
+# guard against a stray non-hex character in the ramp above
+ffi_cols[3] <- "#9DBE84"
+
+area_by_bin[, fill_col := ffi_cols[as.integer(bin)]]
+
+y_top <- max(area_by_bin$area_Mkm2) * 1.18
+
+p <- ggplot(area_by_bin, aes(bin_mid, area_Mkm2, fill = fill_col)) +
+  geom_col(width = 0.06, colour = "grey40", linewidth = 0.2) +
+  scale_fill_identity() +
+  # dashed class dividers
+  geom_vline(xintercept = c(0.2, 0.8), linetype = "dashed",
+             colour = "grey65", linewidth = 0.4) +
+  # low / medium / high labels
+  annotate("text", x = 0.10, y = 5, label = paste0("low\n", pct_low, "%"),
+           size = 5, lineheight = 0.9) +
+  annotate("text", x = 0.50, y = 5, label = paste0("medium\n", pct_med, "%"),
+           size = 5, lineheight = 0.9) +
+  annotate("text", x = 0.90, y = 5, label = paste0("high\n", pct_high, "%"),
+           size = 5, lineheight = 0.9) +
+  scale_x_continuous(breaks = seq(0, 1, 0.1), limits = c(-0.02, 1.02),
+                     expand = c(0, 0)) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.13))) +
+  labs(x = "Forest Fragmentation Index (FFI)",
+       y = expression("Landscape area (" %*% 10^6~km^2*")")) +
+  theme_classic(base_size = 14) +
+  theme(
+    axis.text  = element_text(colour = "black"),
+    axis.line  = element_line(colour = "grey60", linewidth = 0.3),
+    axis.ticks = element_line(colour = "grey60", linewidth = 0.3)
+  )
+p
+
+ggsave(out_png, p, width = 5.2, height = 5.3, dpi = 300)
+cat("Saved:", out_png, "\n\n")
+
+cat(sprintf("Total landscape area: %.2f x10^6 km2\n", tot))
+cat(sprintf("low  (FFI<0.2):   %.1f%%\n", pct_low))
+cat(sprintf("med  (0.2-0.8):   %.1f%%\n", pct_med))
+cat(sprintf("high (FFI>0.8):   %.1f%%\n", pct_high))
+print(area_by_bin[, .(bin, area_Mkm2 = round(area_Mkm2, 3))])
 
 
 
