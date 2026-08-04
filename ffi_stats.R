@@ -696,6 +696,7 @@ for (r in c("Afrotropic", "Neotropic", "Indomalayan")) {
 ###### Figure 1 panel b c d e
 ##### Figure: current forest FFI and components by realm
 ##### FFI on the left axis, the three metrics share the right axis
+#####
 library(data.table)
 library(ggplot2)
 
@@ -887,6 +888,221 @@ cat(sprintf("low  (FFI<0.2):   %.1f%%\n", pct_low))
 cat(sprintf("med  (0.2-0.8):   %.1f%%\n", pct_med))
 cat(sprintf("high (FFI>0.8):   %.1f%%\n", pct_high))
 print(area_by_bin[, .(bin, area_Mkm2 = round(area_Mkm2, 3))])
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+########### Realm stats for PNR scenarios (ΔFFI)
+##### Per-realm summary of fragmentation change under each regeneration scenario
+library(data.table)
+library(terra)
+
+# ---------------- PATHS ----------------
+hh_path    <- "R:/Chapter_3_fragmentation/2026_NEE_R2/FFI_results/hh_results/delta_FFI_holistic_hotspot_hh_b_10m.csv"
+ap_path    <- "R:/Chapter_3_fragmentation/2026_NEE_R2/FFI_results/ap_results/delta_FFI_all_pnr_ap_b_10m.csv"
+output_dir <- "R:/Chapter_3_fragmentation/2026_NEE_R2/FFI_results"
+
+mollweide_crs <- "+proj=moll +lon_0=0 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs"
+cell_area     <- 25
+
+# ---------------- SETTINGS TO CHECK ----------------
+# 1) Name of the delta column in these files. Set to match your CSV header.
+dFFI_col <- "delta_FFI"   # confirmed against file header
+# 2) Thresholds for the change categories (match the Figure 2 legend).
+thr_strong <- -0.1        # ΔFFI < -0.1  -> strongly improved (less fragmented)
+# 0 is the boundary between improved and worsened
+
+# longitude cut lines between realms (same as baseline script)
+lon_neo_afr <- -25
+lon_afr_ind <-  58
+
+# ---------------- REUSABLE REALM ASSIGNMENT (unchanged) ----------------
+assign_realm <- function(dt) {
+  p  <- vect(as.data.frame(dt[, .(center_x, center_y)]),
+             geom = c("center_x", "center_y"), crs = mollweide_crs)
+  ll <- crds(project(p, "EPSG:4326"))
+  dt[, lon := ll[, 1]][, lat := ll[, 2]]
+  dt[, realm := fifelse(lon < lon_neo_afr, "Neotropic",
+                        fifelse(lon < lon_afr_ind, "Afrotropic", "Indomalayan"))]
+  dt[]
+}
+
+# ---------------- SCENARIO STATS PER REALM ----------------
+# Reports ΔFFI centre and spread, plus the share of landscape that
+# became less fragmented / did not change / became more fragmented.
+scenario_stats <- function(dt, label, dcol) {
+  dt2 <- copy(dt)
+  dt2[, .dv := dt2[[dcol]]]
+  dt2[, .(
+    realm         = label,
+    n_units       = .N,
+    area_km2      = .N * cell_area,
+    # --- ΔFFI centre and spread ---
+    dFFI_mean     = round(mean(.dv, na.rm = TRUE), 4),
+    dFFI_median   = round(median(.dv, na.rm = TRUE), 4),
+    dFFI_sd       = round(sd(.dv, na.rm = TRUE), 4),
+    dFFI_q1       = round(quantile(.dv, .25, na.rm = TRUE), 4),
+    dFFI_q3       = round(quantile(.dv, .75, na.rm = TRUE), 4),
+    # --- direction-of-change shares ---
+    pct_strong_improved = round(mean(.dv <  thr_strong, na.rm = TRUE) * 100, 1),
+    pct_improved        = round(mean(.dv >= thr_strong & .dv < 0, na.rm = TRUE) * 100, 1),
+    pct_nochange        = round(mean(.dv == 0, na.rm = TRUE) * 100, 1),
+    pct_worsened        = round(mean(.dv >  0, na.rm = TRUE) * 100, 1),
+    # --- mean component deltas, converted to km-based units ---
+    #   ED: m/ha -> /10 = km/km2 ; PD: already n/km2 ; MPA: ha -> /100 = km2
+    dED_km_per_km2 = round(mean(delta_ED,  na.rm = TRUE) / 10,  4),
+    dPD_n_per_km2  = round(mean(delta_PD,  na.rm = TRUE),        4),
+    dMPA_km2       = round(mean(delta_MPA, na.rm = TRUE) / 100, 4)
+  )]
+}
+
+# ---------------- RUN ONE SCENARIO ----------------
+run_scenario <- function(path, scen_name) {
+  cat("\n=====================================================\n")
+  cat("SCENARIO:", scen_name, "\n")
+  cat("=====================================================\n")
+  
+  d <- fread(path)
+  
+  if (!dFFI_col %in% names(d)) {
+    cat("!! Column '", dFFI_col, "' not found. Columns present:\n", sep = "")
+    print(names(d))
+    stop("Set dFFI_col to the correct delta column name and rerun.")
+  }
+  
+  d <- assign_realm(d)
+  cat("Cells per realm:\n"); print(d[, .N, by = realm])
+  
+  by_realm <- rbindlist(lapply(split(d, by = "realm"),
+                               function(z) scenario_stats(z, z$realm[1], dFFI_col)))
+  all_row  <- scenario_stats(d, "ALL", dFFI_col)
+  tbl <- rbind(by_realm, all_row)
+  setorder(tbl, realm)
+  
+  out_csv <- file.path(output_dir, paste0("summary_", scen_name, "_by_realm.csv"))
+  write.csv(tbl, out_csv, row.names = FALSE)
+  cat("Saved:", out_csv, "\n")
+  print(tbl)
+  
+  cat("\nDRAFT SENTENCES:\n")
+  for (r in c("Neotropic", "Afrotropic", "Indomalayan")) {
+    y <- tbl[realm == r]
+    if (nrow(y) == 0) next
+    cat(sprintf("  %s: mean ΔFFI %.3f (median %.3f, IQR %.3f to %.3f); %.0f%% less fragmented (%.0f%% strongly), %.0f%% unchanged, %.0f%% more fragmented.\n",
+                r, y$dFFI_mean, y$dFFI_median, y$dFFI_q1, y$dFFI_q3,
+                y$pct_strong_improved + y$pct_improved, y$pct_strong_improved,
+                y$pct_nochange, y$pct_worsened))
+  }
+  invisible(tbl)
+}
+
+# ---------------- EXECUTE BOTH ----------------
+hh_tbl <- run_scenario(hh_path, "holistic_hotspot")
+ap_tbl <- run_scenario(ap_path, "all_pnr")
+
+cat("\nDone. Two summary CSVs written to", output_dir, "\n")
+
+###### Scenario deltas by realm: single panel, zero centred, dual axis
+##### Matches the baseline realm figure style.
+##### dFFI on the left axis (scaled by k); dED, dPD, dMPA share the right axis.
+##### True signs kept: ED/PD/FFI fall below zero, MPA rises above.
+library(data.table)
+library(ggplot2)
+
+# ---- pick the scenario by swapping this line ----
+scen_name <- "holistic_hotspot"            # or "holistic_hotspot"
+sum_path  <- sprintf("R:/Chapter_3_fragmentation/2026_NEE_R2/FFI_results/hh_results/summary_%s_by_realm.csv", scen_name)
+out_png   <- sprintf("R:/Chapter_3_fragmentation/2026_NEE_R2/FFI_results/hh_results/hh_stats/fig_realm_deltas_%s.png", scen_name)
+
+tbl <- fread(sum_path)[realm != "ALL"]
+
+# component deltas already km-based in the summary csv; dFFI unitless
+long <- melt(tbl, id.vars = "realm",
+             measure.vars = c("dFFI_mean", "dED_km_per_km2", "dPD_n_per_km2", "dMPA_km2"),
+             variable.name = "metric", value.name = "value")
+
+long[, metric := factor(metric,
+                        levels = c("dFFI_mean", "dED_km_per_km2", "dPD_n_per_km2", "dMPA_km2"),
+                        labels = c("\u0394FFI",
+                                   "\u0394Edge density\n(km/km\u00b2)",
+                                   "\u0394Patch density\n(n/km\u00b2)",
+                                   "\u0394Mean patch area\n(km\u00b2)"))]
+long[, realm := factor(realm, levels = c("Neotropic", "Afrotropic", "Indomalayan"))]
+
+# ----------------------------------------------------
+# TWO AXES, zero centred.
+# Right axis (components) spans [comp_lo, comp_hi]; dFFI is scaled by k
+# onto that same span. Left-axis labels divide back by k to show true dFFI.
+# ----------------------------------------------------
+comp_lo <- -2.5     # below the ΔPD minimum (~ -2.22)
+comp_hi <-  1.0     # above the ΔMPA maximum (~ 0.57)
+
+ffi_lo  <- -0.035   # below the ΔFFI minimum (~ -0.028)
+ffi_hi  <-  0.014   # symmetric-ish headroom for ΔFFI
+
+# scale factor mapping dFFI onto the component axis
+k <- comp_lo / ffi_lo          # keeps the negative extents aligned
+
+long[, plot_val := fifelse(grepl("FFI", metric), value * k, value)]
+
+realm_cols <- c(Neotropic   = "#B8C4B0",
+                Afrotropic  = "#E8D9B9",
+                Indomalayan = "#C2B2C2")
+
+# left-axis (dFFI) tick positions, mapped through k
+ffi_ticks <- seq(-0.03, 0.01, 0.01)
+
+p <- ggplot(long, aes(metric, plot_val, fill = realm)) +
+  geom_col(position = position_dodge(width = 0.8), width = 0.7,
+           colour = "grey40", linewidth = 0.25) +
+  geom_hline(yintercept = 0, colour = "grey30", linewidth = 0.4) +
+  geom_vline(xintercept = 1.5, linetype = "dashed",
+             colour = "grey65", linewidth = 0.35) +
+  scale_y_continuous(
+    name   = "Change in Forest Fragmentation Index (\u0394FFI)",
+    limits = c(comp_lo, comp_hi),
+    breaks = ffi_ticks * k,
+    labels = sprintf("%.2f", ffi_ticks),
+    sec.axis = sec_axis(~ ., name = "\u0394 metric value (units below each label)",
+                        breaks = seq(-2.5, 1.0, 0.5))
+  ) +
+  scale_fill_manual(values = realm_cols, name = NULL) +
+  labs(x = NULL) +
+  theme_minimal(base_size = 12) +
+  theme(
+    legend.position    = "top",
+    legend.key.size    = unit(0.5, "cm"),
+    panel.grid         = element_blank(),
+    axis.line          = element_line(colour = "grey60", linewidth = 0.3),
+    axis.ticks         = element_line(colour = "grey60", linewidth = 0.3),
+    axis.text.x        = element_text(size = 10, lineheight = 0.95, colour = "black"),
+    axis.title.y.left  = element_text(margin = margin(r = 8)),
+    axis.title.y.right = element_text(margin = margin(l = 8))
+  )
+
+ggsave(out_png, p, width = 8, height = 4.8, dpi = 300)
+cat("Saved:", out_png, "\n")
+print(p)
+
+
+
+
+
 
 
 
