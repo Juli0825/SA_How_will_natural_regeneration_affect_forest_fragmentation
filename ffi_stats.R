@@ -595,10 +595,11 @@ cat(sprintf(
   ffi$pct_grids_improved))
 cat("------------------------------------------------------------\n")
 cat("\nSaved:", out_csv, "\n")
-######
 
 
 
+##
+##
 ######################
 ########### Stats for current forest
 ##### Current forest fragmentation by biogeographic realm
@@ -907,7 +908,11 @@ print(area_by_bin[, .(bin, area_Mkm2 = round(area_Mkm2, 3))])
 
 
 
+
+##
+##
 ########### Realm stats for PNR scenarios (ΔFFI)
+#####
 ##### Per-realm summary of fragmentation change under each regeneration scenario
 library(data.table)
 library(terra)
@@ -1111,6 +1116,101 @@ print(p)
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+# figure 3 but ffis in one chart
+###### Figure 3 restructured: split by MEASURE, not by scenario
+##### Chart A: ΔFFI only, both scenarios, single clean y axis.
+##### Chart B: ΔED, ΔPD, ΔMPA, both scenarios, one shared y axis.
+##### Removes the dual axis entirely. Colours now encode scenario.
+library(data.table)
+library(ggplot2)
+library(patchwork)   # to place the two charts together (optional)
+
+# ---- read both scenario summaries, tag by scenario ----
+base_dir <- "R:/Chapter_3_fragmentation/2026_NEE_R2/FFI_results"
+ap <- fread(file.path(base_dir, "ap_results", "ap_stats/summary_all_pnr_by_realm.csv"))[realm != "ALL"]
+hh <- fread(file.path(base_dir, "hh_results", "summary_holistic_hotspot_by_realm.csv"))[realm != "ALL"]
+ap[, scenario := "Full PNR"]
+hh[, scenario := "Holistic hotspot"]
+d  <- rbind(ap, hh)
+
+d[, realm := factor(realm, levels = c("Neotropic", "Afrotropic", "Indomalayan"))]
+d[, scenario := factor(scenario, levels = c("Full PNR", "Holistic hotspot"))]
+
+realm_cols <- c(Neotropic   = "#B8C4B0",
+                Afrotropic  = "#E8D9B9",
+                Indomalayan = "#C2B2C2")
+
+# common theme
+base_theme <- theme_minimal(base_size = 12) +
+  theme(
+    legend.position = "top",
+    legend.key.size = unit(0.5, "cm"),
+    panel.grid      = element_blank(),
+    axis.line       = element_line(colour = "grey60", linewidth = 0.3),
+    axis.ticks      = element_line(colour = "grey60", linewidth = 0.3),
+    axis.text.x     = element_text(size = 10, lineheight = 0.95, colour = "black"),
+    strip.text      = element_text(size = 10, colour = "black")
+  )
+
+# ==========================================================
+# CHART A: delta FFI only, x = scenario, fill = realm, one y axis
+# ==========================================================
+pa <- ggplot(d, aes(scenario, dFFI_mean, fill = realm)) +
+  geom_col(position = position_dodge(width = 0.8), width = 0.7,
+           colour = "grey40", linewidth = 0.25) +
+  geom_hline(yintercept = 0, colour = "grey30", linewidth = 0.4) +
+  scale_fill_manual(values = realm_cols, name = NULL) +
+  labs(x = NULL, y = "Change in Forest Fragmentation Index (\u0394FFI)") +
+  base_theme
+
+ggsave(file.path(base_dir, "fig3a_dFFI_by_scenario.png"), pa,
+       width = 5, height = 4.5, dpi = 300)
+
+# ==========================================================
+# CHART B: the three components, one shared y axis
+#   long format; x = metric, dodge by realm, facet by scenario
+#   (facet keeps the two scenarios readable while sharing one y scale)
+# ==========================================================
+comp <- melt(d, id.vars = c("realm", "scenario"),
+             measure.vars = c("dED_km_per_km2", "dPD_n_per_km2", "dMPA_km2"),
+             variable.name = "metric", value.name = "value")
+comp[, metric := factor(metric,
+                        levels = c("dED_km_per_km2", "dPD_n_per_km2", "dMPA_km2"),
+                        labels = c("\u0394Edge density",
+                                   "\u0394Patch density",
+                                   "\u0394Mean patch area"))]
+
+pb <- ggplot(comp, aes(metric, value, fill = realm)) +
+  geom_col(position = position_dodge(width = 0.8), width = 0.7,
+           colour = "grey40", linewidth = 0.25) +
+  geom_hline(yintercept = 0, colour = "grey30", linewidth = 0.4) +
+  facet_wrap(~ scenario, nrow = 1) +
+  scale_fill_manual(values = realm_cols, name = NULL) +
+  labs(x = NULL, y = "\u0394 metric value") +
+  base_theme
+
+ggsave(file.path(base_dir, "fig3b_components_by_scenario.png"), pb,
+       width = 8, height = 4.5, dpi = 300)
+
+# ---- optional: stack the two charts into one figure ----
+combined <- pa / pb + plot_layout(heights = c(1, 1.1)) +
+  plot_annotation(tag_levels = "a")
+ggsave(file.path(base_dir, "fig3_combined.png"), combined,
+       width = 8, height = 9, dpi = 300)
+
+cat("Saved fig3a, fig3b, and fig3_combined to", base_dir, "\n")
+print(pa); print(pb)
 
 
 
